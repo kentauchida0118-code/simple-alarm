@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Alarm</title>
+<style>
+  :root { --bg:#fafafa; --fg:#111; --muted:#888; --accent:#111; --line:#e5e5e5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111; --fg:#f2f2f2; --muted:#777; --accent:#f2f2f2; --line:#2a2a2a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:28px; padding:16px; background:var(--bg); color:var(--fg);
+    font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans",sans-serif; }
+  #clock { font-size:clamp(48px,16vw,96px); font-weight:200; font-variant-numeric:tabular-nums; }
+  .add { display:flex; gap:8px; }
+  input[type=time] { font:inherit; font-size:20px; padding:8px 12px; border:1px solid var(--line);
+    border-radius:8px; background:transparent; color:var(--fg); }
+  button { font:inherit; border:0; border-radius:8px; padding:8px 16px; cursor:pointer;
+    background:var(--accent); color:var(--bg); }
+  button.ghost { background:transparent; color:var(--muted); padding:4px 10px; }
+  ul { list-style:none; margin:0; padding:0; width:min(320px,100%); }
+  li { display:flex; align-items:center; justify-content:space-between; padding:12px 0;
+    border-bottom:1px solid var(--line); font-size:24px; font-variant-numeric:tabular-nums; }
+  li.off .t { color:var(--muted); text-decoration:line-through; }
+  .t { flex:1; }
+  #ring { position:fixed; inset:0; display:none; flex-direction:column; align-items:center;
+    justify-content:center; gap:24px; background:var(--fg); color:var(--bg); font-size:64px;
+    animation:blink 1s steps(2) infinite; }
+  #ring.on { display:flex; }
+  #ring button { background:var(--bg); color:var(--fg); font-size:20px; padding:12px 32px; }
+  @keyframes blink { 50% { opacity:.85; } }
+</style>
+</head>
+<body>
+  <div id="clock">--:--</div>
+  <div class="add">
+    <input type="time" id="time" value="07:00">
+    <button id="add">追加</button>
+  </div>
+  <ul id="list"></ul>
+  <div id="ring"><div id="ringTime"></div><button id="stop">止める</button></div>
+<script>
+const $ = id => document.getElementById(id);
+const KEY = 'simple-alarm';
+let alarms = [];
+try { alarms = JSON.parse(localStorage.getItem(KEY)) || []; } catch {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(alarms)); } catch {} };
+const pad = n => String(n).padStart(2, '0');
+
+function render() {
+  $('list').innerHTML = '';
+  alarms.sort((a, b) => a.time.localeCompare(b.time)).forEach(a => {
+    const li = document.createElement('li');
+    li.className = a.on ? '' : 'off';
+    li.innerHTML = `<span class="t">${a.time}</span>
+      <button class="ghost" data-act="toggle">${a.on ? 'ON' : 'OFF'}</button>
+      <button class="ghost" data-act="del">✕</button>`;
+    li.querySelector('[data-act=toggle]').onclick = () => { a.on = !a.on; save(); render(); };
+    li.querySelector('[data-act=del]').onclick = () => { alarms = alarms.filter(x => x !== a); save(); render(); };
+    $('list').appendChild(li);
+  });
+}
+
+let ctx, beepTimer, lastFired = '';
+function beep() {
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+  g.gain.setValueAtTime(.3, ctx.currentTime);
+  o.start(); o.stop(ctx.currentTime + .25);
+}
+function ring(time) {
+  $('ringTime').textContent = time;
+  $('ring').classList.add('on');
+  beep(); beepTimer = setInterval(beep, 600);
+}
+$('stop').onclick = () => { clearInterval(beepTimer); $('ring').classList.remove('on'); };
+
+$('add').onclick = () => {
+  const t = $('time').value;
+  if (!t || alarms.some(a => a.time === t)) return;
+  alarms.push({ time: t, on: true }); save(); render();
+  // unlock audio on a user gesture
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+};
+
+function tick() {
+  const d = new Date(), hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  $('clock').textContent = `${hm}:${pad(d.getSeconds())}`;
+  if (hm !== lastFired && d.getSeconds() === 0 || (hm !== lastFired && alarms.some(a => a.on && a.time === hm))) {
+    if (alarms.some(a => a.on && a.time === hm)) { lastFired = hm; ring(hm); }
+  }
+}
+render(); tick(); setInterval(tick, 500);
+</script>
+</body>
+</html>
